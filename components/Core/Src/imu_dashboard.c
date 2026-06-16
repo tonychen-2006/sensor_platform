@@ -14,6 +14,11 @@
 #define IMU_DASHBOARD_HEIGHT   ST7789_HEIGHT
 #define IMU_DASHBOARD_X_OFFSET 0U
 #define IMU_DASHBOARD_Y_OFFSET 0U
+#define IMU_DASHBOARD_PLOT_BOTTOM 176
+#define IMU_DASHBOARD_ORIGIN_X    120
+#define IMU_DASHBOARD_ORIGIN_Y    92
+#define IMU_DASHBOARD_GRID_STEP   24
+#define IMU_DASHBOARD_G_STEP      48
 
 typedef struct {
   int16_t x;
@@ -23,9 +28,7 @@ typedef struct {
 static uint16_t imu_framebuffer[IMU_DASHBOARD_WIDTH * IMU_DASHBOARD_HEIGHT];
 
 static uint16_t color_background;
-static uint16_t color_panel;
 static uint16_t color_grid;
-static uint16_t color_body;
 static uint16_t color_body_edge;
 static uint16_t color_text;
 static uint16_t color_x_axis;
@@ -39,10 +42,10 @@ static void IMU_Dashboard_DrawLine(Point2D_t p0, Point2D_t p1, uint16_t color);
 static void IMU_Dashboard_DrawThickLine(Point2D_t p0, Point2D_t p1, uint16_t color);
 static void IMU_Dashboard_DrawRect(int16_t x, int16_t y, int16_t width, int16_t height,
                                    uint16_t color);
-static void IMU_Dashboard_FillRect(int16_t x, int16_t y, int16_t width, int16_t height,
-                                   uint16_t color);
+static void IMU_Dashboard_DrawCircle(int16_t cx, int16_t cy, int16_t radius, uint16_t color);
+static void IMU_Dashboard_FillCircle(int16_t cx, int16_t cy, int16_t radius, uint16_t color);
 static void IMU_Dashboard_DrawGrid(void);
-static void IMU_Dashboard_DrawBody(const MPU6050_Data_t *data);
+static void IMU_Dashboard_DrawOriginView(const MPU6050_Data_t *data);
 static void IMU_Dashboard_DrawAxis(Point2D_t start, Point2D_t end, uint16_t color);
 static void IMU_Dashboard_DrawArrowHead(Point2D_t start, Point2D_t end, uint16_t color);
 static void IMU_Dashboard_DrawReadouts(const MPU6050_Data_t *data);
@@ -66,7 +69,7 @@ HAL_StatusTypeDef IMU_Dashboard_Draw(const MPU6050_Data_t *data) {
   IMU_Dashboard_InitColors();
   IMU_Dashboard_Clear(color_background);
   IMU_Dashboard_DrawGrid();
-  IMU_Dashboard_DrawBody(data);
+  IMU_Dashboard_DrawOriginView(data);
   IMU_Dashboard_DrawReadouts(data);
 
   return ST7789_DrawRgb565Dma(IMU_DASHBOARD_X_OFFSET, IMU_DASHBOARD_Y_OFFSET, IMU_DASHBOARD_WIDTH,
@@ -81,9 +84,7 @@ static void IMU_Dashboard_InitColors(void) {
   }
 
   color_background = ST7789_Color565(0U, 0U, 0U);
-  color_panel = ST7789_Color565(11U, 18U, 24U);
   color_grid = ST7789_Color565(14U, 24U, 30U);
-  color_body = ST7789_Color565(22U, 27U, 32U);
   color_body_edge = ST7789_Color565(142U, 158U, 164U);
   color_text = ST7789_Color565(206U, 225U, 219U);
   color_x_axis = ST7789_Color565(235U, 53U, 64U);
@@ -154,76 +155,137 @@ static void IMU_Dashboard_DrawRect(int16_t x, int16_t y, int16_t width, int16_t 
   IMU_Dashboard_DrawLine(p3, p0, color);
 }
 
-static void IMU_Dashboard_FillRect(int16_t x, int16_t y, int16_t width, int16_t height,
-                                   uint16_t color) {
-  for (int16_t yy = 0; yy < height; yy++) {
-    for (int16_t xx = 0; xx < width; xx++) {
-      IMU_Dashboard_DrawPixel((int16_t)(x + xx), (int16_t)(y + yy), color);
+static void IMU_Dashboard_DrawCircle(int16_t cx, int16_t cy, int16_t radius, uint16_t color) {
+  int16_t x = radius;
+  int16_t y = 0;
+  int16_t error = 0;
+
+  while (x >= y) {
+    IMU_Dashboard_DrawPixel((int16_t)(cx + x), (int16_t)(cy + y), color);
+    IMU_Dashboard_DrawPixel((int16_t)(cx + y), (int16_t)(cy + x), color);
+    IMU_Dashboard_DrawPixel((int16_t)(cx - y), (int16_t)(cy + x), color);
+    IMU_Dashboard_DrawPixel((int16_t)(cx - x), (int16_t)(cy + y), color);
+    IMU_Dashboard_DrawPixel((int16_t)(cx - x), (int16_t)(cy - y), color);
+    IMU_Dashboard_DrawPixel((int16_t)(cx - y), (int16_t)(cy - x), color);
+    IMU_Dashboard_DrawPixel((int16_t)(cx + y), (int16_t)(cy - x), color);
+    IMU_Dashboard_DrawPixel((int16_t)(cx + x), (int16_t)(cy - y), color);
+
+    y++;
+    if (error <= 0) {
+      error = (int16_t)(error + 2 * y + 1);
+    }
+    if (error > 0) {
+      x--;
+      error = (int16_t)(error - 2 * x + 1);
+    }
+  }
+}
+
+static void IMU_Dashboard_FillCircle(int16_t cx, int16_t cy, int16_t radius, uint16_t color) {
+  int16_t radius_sq = (int16_t)(radius * radius);
+
+  for (int16_t y = (int16_t)-radius; y <= radius; y++) {
+    for (int16_t x = (int16_t)-radius; x <= radius; x++) {
+      if ((x * x + y * y) <= radius_sq) {
+        IMU_Dashboard_DrawPixel((int16_t)(cx + x), (int16_t)(cy + y), color);
+      }
     }
   }
 }
 
 static void IMU_Dashboard_DrawGrid(void) {
-  IMU_Dashboard_FillRect(0, 0, IMU_DASHBOARD_WIDTH, 24, color_panel);
-  IMU_Dashboard_DrawText(8, 8, "IMU LIVE", color_text);
-
-  for (int16_t x = 0; x < (int16_t)IMU_DASHBOARD_WIDTH; x = (int16_t)(x + 24)) {
-    IMU_Dashboard_DrawLine((Point2D_t){x, 24}, (Point2D_t){x, 172}, color_grid);
+  for (int16_t x = IMU_DASHBOARD_ORIGIN_X; x >= 0; x = (int16_t)(x - IMU_DASHBOARD_GRID_STEP)) {
+    IMU_Dashboard_DrawLine((Point2D_t){x, 0}, (Point2D_t){x, IMU_DASHBOARD_PLOT_BOTTOM},
+                           color_grid);
   }
 
-  for (int16_t y = 24; y < 174; y = (int16_t)(y + 24)) {
+  for (int16_t x = (int16_t)(IMU_DASHBOARD_ORIGIN_X + IMU_DASHBOARD_GRID_STEP);
+       x < (int16_t)IMU_DASHBOARD_WIDTH; x = (int16_t)(x + IMU_DASHBOARD_GRID_STEP)) {
+    IMU_Dashboard_DrawLine((Point2D_t){x, 0}, (Point2D_t){x, IMU_DASHBOARD_PLOT_BOTTOM},
+                           color_grid);
+  }
+
+  for (int16_t y = IMU_DASHBOARD_ORIGIN_Y; y >= 0; y = (int16_t)(y - IMU_DASHBOARD_GRID_STEP)) {
     IMU_Dashboard_DrawLine((Point2D_t){0, y}, (Point2D_t){239, y}, color_grid);
   }
 
+  for (int16_t y = (int16_t)(IMU_DASHBOARD_ORIGIN_Y + IMU_DASHBOARD_GRID_STEP);
+       y < IMU_DASHBOARD_PLOT_BOTTOM; y = (int16_t)(y + IMU_DASHBOARD_GRID_STEP)) {
+    IMU_Dashboard_DrawLine((Point2D_t){0, y}, (Point2D_t){239, y}, color_grid);
+  }
+
+  IMU_Dashboard_DrawLine((Point2D_t){0, IMU_DASHBOARD_ORIGIN_Y},
+                         (Point2D_t){239, IMU_DASHBOARD_ORIGIN_Y}, color_body_edge);
+  IMU_Dashboard_DrawLine((Point2D_t){IMU_DASHBOARD_ORIGIN_X, 0},
+                         (Point2D_t){IMU_DASHBOARD_ORIGIN_X, IMU_DASHBOARD_PLOT_BOTTOM},
+                         color_body_edge);
+
+  for (int16_t offset = (int16_t)-IMU_DASHBOARD_G_STEP; offset <= IMU_DASHBOARD_G_STEP;
+       offset = (int16_t)(offset + IMU_DASHBOARD_G_STEP)) {
+    int16_t x_tick = (int16_t)(IMU_DASHBOARD_ORIGIN_X + offset);
+    int16_t y_tick = (int16_t)(IMU_DASHBOARD_ORIGIN_Y + offset);
+
+    IMU_Dashboard_DrawLine((Point2D_t){x_tick, (int16_t)(IMU_DASHBOARD_ORIGIN_Y - 4)},
+                           (Point2D_t){x_tick, (int16_t)(IMU_DASHBOARD_ORIGIN_Y + 4)},
+                           color_body_edge);
+    IMU_Dashboard_DrawLine((Point2D_t){(int16_t)(IMU_DASHBOARD_ORIGIN_X - 4), y_tick},
+                           (Point2D_t){(int16_t)(IMU_DASHBOARD_ORIGIN_X + 4), y_tick},
+                           color_body_edge);
+  }
+
+  IMU_Dashboard_DrawText((int16_t)(IMU_DASHBOARD_ORIGIN_X + IMU_DASHBOARD_G_STEP - 8),
+                         (int16_t)(IMU_DASHBOARD_ORIGIN_Y + 8), "+1G", color_body_edge);
+  IMU_Dashboard_DrawText((int16_t)(IMU_DASHBOARD_ORIGIN_X - IMU_DASHBOARD_G_STEP - 14),
+                         (int16_t)(IMU_DASHBOARD_ORIGIN_Y + 8), "-1G", color_body_edge);
+  IMU_Dashboard_DrawText((int16_t)(IMU_DASHBOARD_ORIGIN_X + 8),
+                         (int16_t)(IMU_DASHBOARD_ORIGIN_Y - IMU_DASHBOARD_G_STEP - 3), "+1G",
+                         color_body_edge);
+  IMU_Dashboard_DrawText((int16_t)(IMU_DASHBOARD_ORIGIN_X + 8),
+                         (int16_t)(IMU_DASHBOARD_ORIGIN_Y + IMU_DASHBOARD_G_STEP - 10), "-1G",
+                         color_body_edge);
+
   IMU_Dashboard_DrawRect(0, 0, IMU_DASHBOARD_WIDTH, IMU_DASHBOARD_HEIGHT, color_grid);
-  IMU_Dashboard_DrawLine((Point2D_t){8, 176}, (Point2D_t){231, 176}, color_grid);
+  IMU_Dashboard_DrawLine((Point2D_t){8, IMU_DASHBOARD_PLOT_BOTTOM},
+                         (Point2D_t){231, IMU_DASHBOARD_PLOT_BOTTOM}, color_grid);
 }
 
-static void IMU_Dashboard_DrawBody(const MPU6050_Data_t *data) {
-  int16_t cx = 120;
-  int16_t cy = 102;
-  int16_t roll = IMU_Dashboard_FloatToScaled(data->accel_y_g, 30.0f, -36, 36);
-  int16_t pitch = IMU_Dashboard_FloatToScaled(data->accel_x_g, 24.0f, -30, 30);
-  Point2D_t top[4];
-  Point2D_t bottom[4];
+static void IMU_Dashboard_DrawOriginView(const MPU6050_Data_t *data) {
+  int16_t cx = IMU_DASHBOARD_ORIGIN_X;
+  int16_t cy = IMU_DASHBOARD_ORIGIN_Y;
+  int16_t roll = IMU_Dashboard_FloatToScaled(data->accel_y_g, 28.0f, -32, 32);
+  int16_t pitch = IMU_Dashboard_FloatToScaled(data->accel_x_g, 24.0f, -28, 28);
+  int16_t z_depth = IMU_Dashboard_FloatToScaled(data->accel_z_g - 1.0f, 20.0f, -16, 16);
+  int16_t accel_grid_x = IMU_Dashboard_FloatToScaled(data->accel_y_g, IMU_DASHBOARD_G_STEP,
+                                                     -IMU_DASHBOARD_G_STEP, IMU_DASHBOARD_G_STEP);
+  int16_t accel_grid_y = IMU_Dashboard_FloatToScaled(data->accel_x_g, IMU_DASHBOARD_G_STEP,
+                                                     -IMU_DASHBOARD_G_STEP, IMU_DASHBOARD_G_STEP);
   Point2D_t origin = {cx, cy};
-
-  top[0] = (Point2D_t){(int16_t)(cx - 64 + roll), (int16_t)(cy - 36 + pitch)};
-  top[1] = (Point2D_t){(int16_t)(cx + 64 + roll), (int16_t)(cy - 24 - pitch)};
-  top[2] = (Point2D_t){(int16_t)(cx + 70 - roll), (int16_t)(cy + 40 - pitch)};
-  top[3] = (Point2D_t){(int16_t)(cx - 58 - roll), (int16_t)(cy + 28 + pitch)};
-
-  for (uint8_t i = 0U; i < 4U; i++) {
-    bottom[i] = (Point2D_t){(int16_t)(top[i].x + 24), (int16_t)(top[i].y + 25)};
-  }
-
-  IMU_Dashboard_DrawThickLine(top[0], top[1], color_body_edge);
-  IMU_Dashboard_DrawThickLine(top[1], top[2], color_body_edge);
-  IMU_Dashboard_DrawThickLine(top[2], top[3], color_body_edge);
-  IMU_Dashboard_DrawThickLine(top[3], top[0], color_body_edge);
-
-  IMU_Dashboard_DrawLine(bottom[0], bottom[1], color_body);
-  IMU_Dashboard_DrawThickLine(bottom[1], bottom[2], color_body_edge);
-  IMU_Dashboard_DrawThickLine(bottom[2], bottom[3], color_body_edge);
-  IMU_Dashboard_DrawLine(bottom[3], bottom[0], color_body);
-
-  for (uint8_t i = 0U; i < 4U; i++) {
-    IMU_Dashboard_DrawLine(top[i], bottom[i], color_body_edge);
-  }
-
-  IMU_Dashboard_DrawText((int16_t)(cx - 9), (int16_t)(cy + 3), "IMU", color_text);
-
-  Point2D_t x_axis_end = {(int16_t)(cx + 86 + roll), (int16_t)(cy - pitch)};
-  Point2D_t y_axis_end = {(int16_t)(cx - 8), (int16_t)(cy - 78 + pitch)};
-  Point2D_t z_axis_end = {(int16_t)(cx - 90), (int16_t)(cy + 48 + roll)};
+  Point2D_t x_axis_end = {(int16_t)(cx + 78 + roll), (int16_t)(cy - pitch)};
+  Point2D_t y_axis_end = {(int16_t)(cx - 8), (int16_t)(cy - 68 + pitch)};
+  Point2D_t z_axis_end = {(int16_t)(cx - 82 + (roll / 2)),
+                          (int16_t)(cy + 50 + (roll / 2) + z_depth)};
+  Point2D_t accel_point = {(int16_t)(cx + accel_grid_x), (int16_t)(cy - accel_grid_y)};
 
   IMU_Dashboard_DrawAxis(origin, x_axis_end, color_x_axis);
   IMU_Dashboard_DrawAxis(origin, y_axis_end, color_y_axis);
   IMU_Dashboard_DrawAxis(origin, z_axis_end, color_z_axis);
 
-  IMU_Dashboard_DrawText((int16_t)(cx + 95), (int16_t)(cy - 10), "X", color_x_axis);
-  IMU_Dashboard_DrawText((int16_t)(cx - 15), (int16_t)(cy - 92), "Y", color_y_axis);
-  IMU_Dashboard_DrawText((int16_t)(cx - 104), (int16_t)(cy + 50), "Z", color_z_axis);
+  IMU_Dashboard_DrawCircle(accel_point.x, accel_point.y, 5, color_text);
+  IMU_Dashboard_DrawLine((Point2D_t){(int16_t)(accel_point.x - 7), accel_point.y},
+                         (Point2D_t){(int16_t)(accel_point.x + 7), accel_point.y}, color_text);
+  IMU_Dashboard_DrawLine((Point2D_t){accel_point.x, (int16_t)(accel_point.y - 7)},
+                         (Point2D_t){accel_point.x, (int16_t)(accel_point.y + 7)}, color_text);
+
+  IMU_Dashboard_FillCircle(cx, cy, 9, color_text);
+  IMU_Dashboard_DrawCircle(cx, cy, 12, color_body_edge);
+  IMU_Dashboard_DrawText((int16_t)(cx - 18), (int16_t)(cy + 16), "IMU", color_text);
+
+  IMU_Dashboard_DrawText((int16_t)(x_axis_end.x + 8), (int16_t)(x_axis_end.y - 8), "X",
+                         color_x_axis);
+  IMU_Dashboard_DrawText((int16_t)(y_axis_end.x - 6), (int16_t)(y_axis_end.y - 14), "Y",
+                         color_y_axis);
+  IMU_Dashboard_DrawText((int16_t)(z_axis_end.x - 14), (int16_t)(z_axis_end.y + 4), "Z",
+                         color_z_axis);
 }
 
 static void IMU_Dashboard_DrawAxis(Point2D_t start, Point2D_t end, uint16_t color) {
