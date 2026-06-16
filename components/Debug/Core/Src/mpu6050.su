@@ -1,0 +1,7 @@
+../Core/Src/mpu6050.c:30:19:MPU6050_Init	40	static
+../Core/Src/mpu6050.c:83:19:MPU6050_ReadAll	32	static
+../Core/Src/mpu6050.c:115:19:MPU6050_ReadDeviceId	16	static
+../Core/Src/mpu6050.c:123:17:MPU6050_HalAddress	16	static
+../Core/Src/mpu6050.c:127:16:MPU6050_ToInt16	16	static
+../Core/Src/mpu6050.c:131:26:MPU6050_WriteRegister	40	static
+../Core/Src/mpu6050.c:139:26:MPU6050_ReadRegisters	48	static

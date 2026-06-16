@@ -1,0 +1,16 @@
+../Core/Src/st7789.c:45:19:ST7789_Init	24	static
+../Core/Src/st7789.c:115:19:ST7789_FillScreen	40	static
+../Core/Src/st7789.c:146:19:ST7789_DrawRgb565Dma	32	static
+../Core/Src/st7789.c:184:9:ST7789_IsBusy	4	static
+../Core/Src/st7789.c:186:6:ST7789_WaitForDma	4	static
+../Core/Src/st7789.c:191:10:ST7789_Color565	24	static
+../Core/Src/st7789.c:197:6:HAL_SPI_TxCpltCallback	16	static
+../Core/Src/st7789.c:214:13:ST7789_Select	8	static
+../Core/Src/st7789.c:216:13:ST7789_Unselect	8	static
+../Core/Src/st7789.c:218:13:ST7789_CommandMode	8	static
+../Core/Src/st7789.c:220:13:ST7789_DataMode	8	static
+../Core/Src/st7789.c:222:26:ST7789_WriteCommand	24	static
+../Core/Src/st7789.c:234:26:ST7789_WriteData	24	static
+../Core/Src/st7789.c:246:26:ST7789_SetAddressWindow	40	static
+../Core/Src/st7789.c:284:26:ST7789_StartNextDmaChunk	16	static
+../Core/Src/st7789.c:298:26:ST7789_Reset	8	static
